@@ -9,7 +9,7 @@ var bodyParser = require('body-parser');
 var morgan = require('morgan');
 var mongoose = require('mongoose');
 var rand = require('csprng');
-const crypto = require('crypto');
+const CRYPTO = require('crypto');
 
 var jwt = require('jsonwebtoken');
 var config = require('./config');
@@ -54,34 +54,7 @@ router.get('/', function(req, res) {
 
 // on routes that end in /setup
 // ---------------------------------------
-app.get('/setup', function(req, res) {
-//create a sample user
-var salt = rand(160, 36);
-  var hashedPass = crypto.pbkdf2(req.body.password, salt, iterations, keylen, digest, function(err, key) {
-    if (err) throw err;
-    var newUser = new User({
-      name: req.body.name,
-      password: key,
-      salt: salt
-    })
-  })
-  var newUser = new User({
-    name: req.body.name,
-    password: req.body.password,
-    salt
-    admin: true
-  });
 
-
-
-  //save the sample user
-  john.save(function(err) {
-    if (err) throw err;
-
-    console.log('User saved successfully');
-    res.json({ success: true });
-  });
-});
 
 // API ROUTES ----------------------------
 
@@ -100,60 +73,92 @@ apiRoutes.post('/authenticate', function(req, res) {
     if (!user) {
       res.json({ success: false, message: 'Authentication failed. User not found.' });
     } else if (user) {
+      console.log(user.salt);
 
       // check if password matches
-      if (user.password != req.body.password) {
-        res.json({ success: false, message: 'Authentication failed. Wrong password' });
-      } else {
+      CRYPTO.pbkdf2(req.body.password, user.salt, 100000, 512, 'sha512', function(err, key) {
+        if (err) {
+          res.json({ success: false, message: 'Authentication failed. Wrong password' });
+        } else if (user.password == key){
 
-        // if user is found and password is right
-        // create a token
-        var token = jwt.sign(user, app.get('superSecret'), {
-          expiresIn: 1440 // expires in 24 hours
-        });
+          // if user is found and password is right
+          // create a token
+          var token = jwt.sign(user, app.get('superSecret'), {
+            expiresIn: 1440 // expires in 24 hours
+          });
 
-        // return the information including the token as JSON
-        res.json({
-          success: true,
-          message: 'Enjoy the tasty treat',
-          token: token
-        });
-      }
+
+          // return the information including the token as JSON
+          res.json({
+            success: true,
+            message: 'Enjoy the tasty treat',
+            token: token
+          });
+        }
+      });
 
     }
 
   });
 });
 
-// TODO: route middleware to verify a token
-apiRoutes.use(function(req, res, next) {
+// route to create a new user with a salted and hashed password
+apiRoutes.post('/setup', function(req, res) {
 
-  // check header or url parameters or post parameters for token
-  var token = req.body.token || req.query.token || req.headers['x-access-token'];
+  if (!req.body.name || !req.body.password) return res.json({ success: false, message: "You missing things, yo." });
+  var salt = rand(160, 36);
+  console.log(typeof salt);
+  CRYPTO.pbkdf2(req.body.password, salt, 100000, 512, 'sha512', function(err, key) {
+    if (err) throw err;
 
-  // decode token
-  if(token) {
-
-    // verifies secret and checks exp
-    jwt.verify(token, app.get('superSecret'), function(err, decoded) {
-      if (err) {
-        return res.json({ success: false, message: 'Failed to authenticate token.' });
-      } else {
-        // if everything is good, save to request for use in other routes
-        req.decoded = decoded;
-        next();
-      }
+    //create a sample user
+    var newUser = new User({
+      name: req.body.name,
+      password: key,
+      salt: salt,
+      admin : true
     });
-  } else {
 
-    // if there is no token
-    // return error
-    return res.status(403).send({
-      success: false,
-      message: 'No token provided.'
+    //save the sample user
+    newUser.save(function(err) {
+      if (err) throw err;
+
+      console.log('User saved successfully');
+      res.json({ success: true });
     });
-  }
+  });
+
 });
+
+// TODO: Delete users in DB that don't adhere to updated schema
+// apiRoutes.use(function(req, res, next) {
+//
+//   // check header or url parameters or post parameters for token
+//   var token = req.body.token || req.query.token || req.headers['x-access-token'];
+//
+//   // decode token
+//   if(token) {
+//
+//     // verifies secret and checks exp
+//     jwt.verify(token, app.get('superSecret'), function(err, decoded) {
+//       if (err) {
+//         return res.json({ success: false, message: 'Failed to authenticate token.' });
+//       } else {
+//         // if everything is good, save to request for use in other routes
+//         req.decoded = decoded;
+//         next();
+//       }
+//     });
+//   } else {
+//
+//     // if there is no token
+//     // return error
+//     return res.status(403).send({
+//       success: false,
+//       message: 'No token provided.'
+//     });
+//   }
+// });
 
 // route to show a random message (GET http://localhost:8088/api/)
 apiRoutes.get('/', function(req, res) {

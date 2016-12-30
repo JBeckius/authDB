@@ -8,6 +8,7 @@ var app = express(); //define app using express
 var bodyParser = require('body-parser');
 var morgan = require('morgan');
 var mongoose = require('mongoose');
+//var serveStatic = require('serve-static');
 var rand = require('csprng');
 const CRYPTO = require('crypto');
 
@@ -32,9 +33,23 @@ app.use(morgan('dev'));
 // ROUTES
 // ========================================================================
 // basic route
-app.get('/', function(req, res) {
-  res.send('Hello! The API is in another castle. Http://192.168.3.100:' + port + '/api, to be exact');
+
+//app.use(serveStatic(__dirname));
+app
+.get('/', function(req, res) {
+  res.sendFile(__dirname + '/static/');
+  //res.sendFile(__dirname + '/static/formTest.js');
+})
+.get('/formTest.js', function(req, res) {
+  res.sendFile(__dirname + '/static/formTest.js');
+})
+.get('/testP', function(req, res) {
+  //data = JSON.stringify({message: "got a thing"});
+  //res.responseText = "boobity";
+  //res.message = "boobity";
+  res.json({message: "got a thing"});
 });
+
 
 var router = express.Router();  //makes instance of express router
 
@@ -63,6 +78,7 @@ var apiRoutes = express.Router();
 
 // TODO: route to authenticate a user (POST http://localhost:8088/api/authenticate)
 apiRoutes.post('/authenticate', function(req, res) {
+  //console.log(req);
 
   // find the user
   User.findOne({
@@ -73,7 +89,7 @@ apiRoutes.post('/authenticate', function(req, res) {
     if (!user) {
       res.json({ success: false, message: 'Authentication failed. User not found.' });
     } else if (user) {
-      console.log(user.salt);
+      //console.log(user.salt);
 
       // check if password matches
       CRYPTO.pbkdf2(req.body.password, user.salt, 100000, 512, 'sha512', function(err, key) {
@@ -89,9 +105,12 @@ apiRoutes.post('/authenticate', function(req, res) {
           };
           var token = jwt.sign(user, app.get('superSecret'), {
             expiresIn: 1440 // expires in 24 hours
+            //algorithm: 'RS256'
           });
 
-
+          res.set({
+            'authToken' : token
+          });
           // return the information including the token as JSON
           res.json({
             success: true,
@@ -106,9 +125,10 @@ apiRoutes.post('/authenticate', function(req, res) {
   });
 });
 
+//-------------------------------------------------------------
 // route to create a new user with a salted and hashed password
 apiRoutes.post('/setup', function(req, res) {
-  console.log(req);
+  //console.log(req);
 
   if (!req.body.name || !req.body.password) return res.json({ success: false, message: "You missing things, yo." });
   User.findOne({ name: req.body.name }, function(err, user) {
@@ -118,7 +138,7 @@ apiRoutes.post('/setup', function(req, res) {
       res.json({ success: false, message: "That username is already taken. Please try another."});
     } else if (!user) {
       var salt = rand(160, 36);
-      console.log(typeof salt);
+      //console.log(typeof salt);
       CRYPTO.pbkdf2(req.body.password, salt, 100000, 512, 'sha512', function(err, key) {
         if (err) throw err;
 
@@ -141,43 +161,26 @@ apiRoutes.post('/setup', function(req, res) {
     }
 
   });
-  // var salt = rand(160, 36);
-  // console.log(typeof salt);
-  // CRYPTO.pbkdf2(req.body.password, salt, 100000, 512, 'sha512', function(err, key) {
-  //   if (err) throw err;
-  //
-  //   //create a sample user
-  //   var newUser = new User({
-  //     name: req.body.name, // set the new user's name from the post request
-  //     password: key,
-  //     salt: salt,
-  //     admin : true
-  //   });
-  //
-  //   //save the sample user
-  //   newUser.save(function(err) {
-  //     if (err) throw err;
-  //
-  //     console.log('User saved successfully');
-  //     res.json({ success: true });
-  //   });
-  // });
-
 });
 
 // TODO: Delete users in DB that don't adhere to updated schema
+
+//-------------------------------------------------
+// Authentication middleware checks validity of JWT
+//-------------------------------------------------
 apiRoutes.use(function(req, res, next) {
 
   // check header or url parameters or post parameters for token
   var token = req.body.token || req.query.token || req.headers['x-access-token'];
+  console.log(token);
 
   // decode token
   if(token) {
 
     // verifies secret and checks exp
-    jwt.verify(token, app.get('superSecret'), { algorithms: ['RS256'] }, function(err, decoded) {
+    jwt.verify(token, app.get('superSecret'), { algorithms: ['HS256'] }, function(err, decoded) {
       if (err) {
-        return res.json({ success: false, message: 'Failed to authenticate token.' });
+        return res.json({ success: false, message: 'Failed to authenticate token.', error: err  });
       } else {
         // if everything is good, save to request for use in other routes
         req.decoded = decoded;
@@ -223,6 +226,15 @@ apiRoutes.route('/users/:user_id')
   // route to update the user with the given id
   .put(function(req, res) {
     // TODO write logic to update specific properties from req data
+    User.findById(req.param.user_id, function(err, user) {
+      if (err) res.send(err);
+
+      for (var prop in req.body) {
+        if (req.body.hasOwnProperty(prop) && user.hasOwnProperty(prop) && typeof req.body[prop] === typeof user[prop]) {
+          user[prop] = req.body[prop];
+        }
+      }
+    });
   })
 
 app.use('/api', apiRoutes);
